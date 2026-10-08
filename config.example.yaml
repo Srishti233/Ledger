@@ -1,0 +1,39 @@
+# Copy to config.yaml and pass with --config, or set LEDGER_CONFIG. Any key can also be set
+# with an environment variable: LEDGER_<KEY_IN_CAPS>, e.g. LEDGER_BATCH_SIZE=50.
+
+# --- Chain: a LOCAL Anvil node by default. Test ETH only, never real funds. ---------------
+rpc_url: http://127.0.0.1:8545
+# Anvil's well-known development keys (public; control accounts on every dev chain).
+# Ledger refuses to use them against a non-local chain.
+private_key: "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d"          # signs anchorBatch
+deployer_private_key: "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80" # contract owner
+contract_address: ""     # empty: read <data_dir>/deployment.json written by `ledger deploy`
+artifact_path: ""        # forge artifact; empty: /app/artifacts/... or contracts/out/...
+
+# To use a FREE public testnet instead (optional, never required, never the default):
+#   rpc_url: https://<your-testnet-rpc>
+#   allow_non_local_chain: true
+#   private_key / deployer_private_key: your own throwaway testnet keys
+#   explorer_tx_url: "https://sepolia.etherscan.io/tx/{tx_hash}"
+allow_non_local_chain: false
+explorer_tx_url: ""
+
+# --- Batching -------------------------------------------------------------------------
+batch_size: 100          # anchor as soon as this many records are pending (per source)
+max_wait_seconds: 300    # ...or when the oldest pending record has waited this long
+confirmations: 1         # blocks to wait before recording a batch as final
+interval_seconds: 0      # background auto-anchor tick for `ledger serve`; 0 disables
+tx_timeout_seconds: 60
+
+# --- Storage ----------------------------------------------------------------------------
+data_dir: ./data
+db_path: ""              # empty: <data_dir>/ledger.db
+
+# --- Optional integration with Aegis (read-only) -------------------------------------------
+aegis_db_url: ""         # postgresql://readonly_user:...@host:5432/aegis  (or sqlite:///file.db)
+aegis_url: ""
+aegis_admin_key: ""
+
+# --- API -------------------------------------------------------------------------------------
+api_key: ""              # if set, POST endpoints require header X-Ledger-Key
+inbox_dir: ""            # API reads Gauntlet results only from here (default <data_dir>/inbox)
