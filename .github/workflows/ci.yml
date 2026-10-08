@@ -47,7 +47,10 @@ jobs:
       - uses: foundry-rs/foundry-toolchain@v1
       - run: pip install -e ".[dev,postgres]"
       - name: Build the contract artifact
-        run: cd contracts && forge build
+        run: |
+          cd contracts
+          forge install --no-git foundry-rs/forge-std
+          forge build
       - name: Start a real local Anvil chain
         run: |
           anvil --host 127.0.0.1 --port 8545 --chain-id 31337 \
@@ -70,7 +73,7 @@ jobs:
       - name: Build and start the full stack (Anvil + Ledger)
         run: docker compose up --build -d
       - name: Tamper-detection demo against the real Anvil chain
-        run: NO_UP=1 ./scripts/demo.sh
+        run: NO_UP=1 bash scripts/demo.sh
       - name: Measure gas and timings (real local chain)
         run: make eval
       - uses: actions/upload-artifact@v4
