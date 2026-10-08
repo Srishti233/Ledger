@@ -38,7 +38,7 @@ The verifier treats **only the on-chain root as trusted**. Everything Ledger sto
 ```bash
 git clone https://github.com/Srishti233/Ledger.git && cd Ledger
 docker compose up --build -d          # Anvil chain + Ledger service (deploys the contract automatically)
-./scripts/demo.sh                     # collect → anchor → verify → tamper → detect
+bash scripts/demo.sh                  # collect → anchor → verify → tamper → detect
 ```
 
 > **About the private keys in this repo.** `config.py`, `config.example.yaml` and `Deploy.s.sol` contain two `0x...` private keys. They are Anvil's **public development keys** (the same on every developer's machine, documented by Foundry) and control only worthless test ETH on a local chain. A secret scanner may flag them; that is a false positive. Ledger refuses to use them against any non-local RPC URL.
@@ -49,7 +49,7 @@ Without Docker: `pip install -e ".[dev]"`, `anvil &`, `(cd contracts && forge bu
 
 ## The tamper-detection demo
 
-`scripts/demo.sh` runs `ledger demo` against the real chain and fails unless all of these hold:
+`bash scripts/demo.sh` runs `ledger demo` against the real chain and fails unless all of these hold:
 
 1. A batch of synthetic records is collected and anchored; the real transaction hash and gas used are printed.
 2. The clean batch verifies, including with the full source record set supplied.
@@ -59,55 +59,86 @@ Without Docker: `pip install -e ".[dev]"`, `anvil &`, `(cd contracts && forge bu
 
 How the two cases are told apart: each record's stored Merkle proof is checked against the **live on-chain root**. A forged index row cannot produce a valid proof for the on-chain root (that would require a SHA-256 preimage), so it fails; a modified source row fails because its fresh hash does not verify through the *untouched* index proof.
 
-Excerpt of the report format (verbatim lines from `ledger demo`, trimmed):
-
-> **Sample provenance:** this transcript was produced by running the demo code against the **in-memory test chain used by the unit tests**, because the build environment had no Docker/Foundry. Its tx hash, block and gas values are test-double values, **not measurements**. A real run against Anvil prints real values; CI runs it on every push.
+Real output from the CI `demo` job (2026-10-08, a fresh Anvil chain; lines trimmed with `...`, nothing edited):
 
 ```text
+Ledger demo: chain connected=True contract=0x5FbDB2315678afecb367f032d93F642f64180aa3
+
+[2/6] Build a Merkle tree and anchor its root on-chain.
+  tx hash   : 0x5ea414db12e1aa7ba92a37161b540dd468d30aa4a3f981819d37a7ce842aa95e
+  block     : 3
+  gas used  : 140178
+  root      : 7cb56443292dfecbc9fe1618b3e7fbdb02297b9d85c04827f95881f9b7ea6022
+  records   : 25
+  took      : 0.133s
+
+[3/6] Verify the batch (index vs live chain).
+== batch 1: VERIFIED ==
+  [ok]   index_root_equals_chain_root: roots match
+  [ok]   recomputed_root_equals_chain_root: root recomputed from the indexed leaves equals the on-chain root
+  [ok]   every_record_included_in_onchain_root: all 25 stored leaves + proofs reproduce the on-chain root
+  [skip] source_full_record_set: full record set not supplied
+  What was proven:
+    + the anchored leaf is included in Merkle root 7cb56443292dfecb..., which was written on-chain in block 3 at 2026-10-08T04:33:51+00:00 by 0x70997970C51812dc3A010C7d01b50e0d17dc79C8; this exact hash therefore existed no later than then.
+
 [4/6] TAMPER with Ledger's own SQLite index (record 13, 13) -- simulating a compromised Ledger server.
 == batch 1: TAMPER DETECTED ==
   [ok]   index_root_equals_chain_root: roots match
   [ok]   record_set_complete: 25 records at positions 0..24, chain says 25
   [FAIL] recomputed_root_equals_chain_root: recomputed 57dff4c0cc008505... vs on-chain 7cb56443292dfecb...
   [FAIL] every_record_included_in_onchain_root: 1 record(s) fail their stored leaf/proof against the chain
-  [skip] source_full_record_set: full record set not supplied
   Diagnosis:
-    - LEDGER_INDEX_MODIFIED: Ledger's local index no longer matches what was anchored on-chain ...
+    - LEDGER_INDEX_MODIFIED: Ledger's local index no longer matches what was anchored on-chain (simulates a compromised Ledger server). The chain, not the index, is authoritative.
   Records whose index entry fails against the chain: [13]
   What was NOT proven / not checked:
     - whether the original data was captured correctly or is true in the real world.
     - that the anchoring key belongs to the real Aegis/Gauntlet instance.
+  -> PASS: report identifies exactly the tampered record (culprits=[13])
 
-[5/6] TAMPER with a COPY of the Aegis audit table fixture (row id 13) -- ...
+[5/6] TAMPER with a COPY of the Aegis audit table fixture (row id 13) -- simulating a compromised Aegis database; verify with the full record set supplied.
 == batch 1: TAMPER DETECTED ==
   [ok]   recomputed_root_equals_chain_root: root recomputed from the indexed leaves equals the on-chain root
+  [ok]   every_record_included_in_onchain_root: all 25 stored leaves + proofs reproduce the on-chain root
+  [FAIL] source_full_record_set: 1 record(s) recomputed from source no longer match the anchor
   Diagnosis:
-    - SOURCE_DATA_MODIFIED: The source data no longer hashes to the leaf that was anchored ...
+    - SOURCE_DATA_MODIFIED: The source data no longer hashes to the leaf that was anchored: the source (e.g. the Aegis audit table) was changed after anchoring. The on-chain root is intact.
   Records whose source data no longer matches the anchor: [13]
+  -> PASS: report identifies exactly the tampered source row (culprits=[13])
+
+DEMO PASSED: 10/10 expectations met
 ```
+
+The contract address is Anvil's deterministic first-deployment address and `0x7099...79C8` is Anvil's public test account #1; both are well known and hold nothing of value. Note the two tamper cases: in step 4 the on-chain-root comparison fails, while in step 5 it passes and only the source check fails, which is how Ledger tells a compromised Ledger database from a compromised Aegis database.
 
 ## Evaluation (measured)
 
-Every number below was produced by running the code; nothing is estimated.
+Produced by `make eval` inside the CI `demo` job: a GitHub Actions Ubuntu runner (Python 3.12) running the full Docker stack with a **real Anvil chain**, on 2026-10-08. Committed as [`results/eval.json`](results/eval.json) and [`results/eval.md`](results/eval.md). This is a single run on one machine type; the timings are medians of a few repetitions within that run (500 for proof verification, 5 for record verification, 3 for batch verification), so read them as indicative, not as a benchmark.
 
-**Pure-Python Merkle timings** (measured in the build sandbox: 1 vCPU x86_64, Python 3.12.3; committed as [`results/merkle_bench.json`](results/merkle_bench.json)):
+| records in batch | gas used | anchor time (s) | inclusion-proof verify (ms) | record verify, incl. chain query (ms) | batch verify, incl. chain query (ms) |
+|---:|---:|---:|---:|---:|---:|
+| 1 | 123,078 | 0.129 | 0.0006 | 8.1 | 8.0 |
+| 10 | 123,078 | 0.126 | 0.0036 | 7.8 | 8.1 |
+| 100 | 123,078 | 0.131 | 0.0062 | 8.3 | 10.9 |
+| 1000 | 123,090 | 0.170 | 0.0149 | 10.9 | 50.8 |
+
+**Headline: the on-chain cost does not grow with the batch.** Anchoring 1 record or 100 records costs the same 123,078 gas; 1000 records costs 12 gas more. That 12 is exactly the extra calldata cost of one more non-zero byte in the `recordCount` argument (1000 needs two non-zero bytes, the others one; 16 - 4 = 12 gas). Because only the 32-byte root is stored, anchoring 1000 records individually would cost roughly 1000 x 123,078, about 123 million gas (arithmetic from the one-record row, not a separate measurement), versus 123,090 for one batch.
+
+Other observations from this run: anchoring (transaction, receipt and confirmation wait) took about 0.13 s on the local chain; every verdict was `verified`; verifying a single inclusion proof is a few microseconds of pure hashing; the live-chain checks dominate the cost of a record verification (about 8 ms); and a 1000-record batch verifies in about 51 ms, because it recomputes the root and checks every stored proof.
+
+**First call on a fresh contract costs more.** The demo's first-ever anchor on a brand-new contract used 140,178 gas (25 records, block 3), while later calls in the same CI run used 123,078 (the table above, and the 5-record API smoke test in the demo job, which reported 123,078 total). The difference is exactly 17,100 gas, which equals the cost of writing a storage slot for the first time (22,100) minus updating an existing one (5,000): the first `anchorBatch` also initialises the contract's batch counter. It is a one-time cost per contract. `make eval` therefore sends a throwaway warm-up anchor first and excludes it from the table (123,030 gas in that run, which was not a first call because the demo had already used the contract), and the Foundry and integration gas tests warm up before comparing.
+
+**Illustrative cost per batch** (assumed gas prices, not a live feed; no price API is called, and these are not measurements): at an assumed 20 gwei on Ethereum L1, 123,078 gas is about 0.00246 ETH; at an assumed 0.05 gwei on a typical rollup L2, about 0.0000062 ETH; on a free public testnet, nothing of value. The assumptions are editable constants in `ledger/evaluation.py`.
+
+**Pure-Python Merkle timings** (same run, no chain): building a 1000-leaf tree takes about 1.3 ms; generating or verifying one proof takes under 0.01 ms; a proof for 1000 leaves has 10 steps.
 
 | records | tree build (ms) | proof generate (ms) | proof verify (ms) | proof length |
 |---:|---:|---:|---:|---:|
-| 1 | 0.001 | 0.0007 | 0.0011 | 0 |
-| 10 | 0.019 | 0.0047 | 0.0061 | 4 |
-| 100 | 0.168 | 0.0079 | 0.01 | 7 |
-| 1000 | 1.709 | 0.0109 | 0.013 | 10 |
+| 1 | 0.001 | 0.0007 | 0.0012 | 0 |
+| 10 | 0.022 | 0.0051 | 0.0067 | 4 |
+| 100 | 0.181 | 0.0083 | 0.0107 | 7 |
+| 1000 | 1.297 | 0.0063 | 0.0081 | 10 |
 
-**Gas, anchor time, and verification time against the live local chain: not measured in this build.** The build sandbox had no Docker or Foundry, and fabricating chain numbers would violate this project's own rules. They are produced by one command and written to `results/eval.json` and `results/eval.md`:
-
-```bash
-docker compose up --build -d && make eval
-```
-
-CI runs the same command on every push and uploads it as the `eval-results` artifact; commit its output to `results/` to pin your numbers here. What to expect, by design and verified by an in-repo test rather than by claim: only the 32-byte root is stored on-chain, so `anchorBatch` gas should be essentially constant regardless of batch size (`forge test` has `test_gasIsConstantAcrossBatchSizes`, and the integration suite asserts a spread under 2,000 gas across 1/10/100-record batches on real Anvil). A throwaway warm-up anchor runs first because the very first call on a fresh contract also initialises the batch counter, which costs more; it is reported separately and excluded from the table.
-
-`ledger eval` also prints a clearly labelled **illustrative** cost-per-batch table (assumed gas prices for Ethereum L1 and a typical L2, in ETH, no fiat prices). These are editable assumptions in `ledger/evaluation.py`, not a live feed, and no price API is called.
+Reproduce: `docker compose up --build -d && make eval`.
 
 ## CLI reference
 
@@ -159,18 +190,25 @@ Ledger is standalone and touches the other two projects only through the interfa
 
 **What was exercised in this build: synthetic fixtures only.** The fixtures follow the interface contract above (Aegis rows use the documented schema and the documented `entry_hash` formula, so they form genuine hash chains; the Gauntlet report has the assumed shape). Ledger has **not** been run against a real Aegis database or a real Gauntlet `results.json`. If your Gauntlet output differs, the fix is a one-line `--bypass-key` or an edit to `BYPASS_KEYS` in `ledger/sources.py`.
 
-## What was and was not verified in this build
+## What has and has not been verified
 
-| area | status |
+All four GitHub Actions jobs pass on the current `main`:
+
+| area | evidence |
 |---|---|
-| Merkle, hashing, store, config, collectors, anchorer, verifier, demo, evaluation, CLI | **Run:** 127 tests passed in the build sandbox via a stdlib-only pytest-compatible runner (real pytest was not installable there), using an in-memory chain double. Spot mutation checks confirmed the tests fail when the tamper logic or sorted-pair hashing is broken. Line coverage on the runnable modules measured about 84% overall with `api.py` and most of `chain.py` unexercised there. |
-| Aegis collector over SQLite | **Run** (a table with Aegis's schema). Postgres/`psycopg` path: **not run**. |
-| Solidity contract + `forge test` / `forge coverage` | **Not run** (no Foundry in the sandbox). Written to Solidity 0.8.24; reviewed by hand. |
-| `web3.py` chain client, deployment, real Anvil integration tests | **Not run.** First executed by CI's `test` job. |
-| FastAPI app, dashboard, API tests | **Not run** (FastAPI unavailable in the sandbox). |
-| `docker compose up --build`, `scripts/demo.sh`, GitHub Actions | **Not run.** First executed by CI's `demo` job. |
+| Python lint (`ruff`, errors only) | CI `lint` job |
+| Solidity contract | CI `contract-test`: `forge build`, `forge test` (access control, events, duplicate roots, input validation, fuzz tests, gas ceiling and gas-constancy tests), `forge coverage`, and a simulation of the deploy script |
+| Python unit, API and **real-chain integration** tests, 80% coverage gate | CI `test` job, run against a real Anvil node (not mocked). The job fails if the integration tests are skipped rather than run. |
+| Full Docker stack, tamper-detection demo, HTTP API smoke test, measured evaluation | CI `demo` job: `docker compose up --build`, `scripts/demo.sh`, `make eval` |
 
-Treat the first CI run as the first real execution of the chain-facing code; it may need small fixes (version drift in `web3`/Foundry/Docker images is the likeliest cause). The `test` job deliberately fails if the integration tests are skipped rather than run.
+**Still not verified:**
+
+* **Real Aegis and real Gauntlet data.** Everything ran against synthetic fixtures that follow the interface contract above (see the previous section). The Gauntlet `results.json` shape is an assumption.
+* **Aegis over Postgres.** The collector's SQLite path is tested; the `psycopg`/Postgres path is installed in CI but not exercised against a Postgres server.
+* **Any non-local chain.** Only the local Anvil chain was used. Public testnets are supported by configuration but untried, and Ledger refuses Anvil's public test keys there.
+* **Platforms and versions beyond CI.** For example Apple-silicon Docker builds, and future `web3`, Foundry or image releases.
+
+Earlier in development the Python core was also run in a sandbox without a chain (against an in-memory chain double), and spot mutation checks confirmed the tamper-detection tests fail when the logic is deliberately broken.
 
 ## Limitations
 
