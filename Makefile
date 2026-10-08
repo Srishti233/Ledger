@@ -36,7 +36,7 @@ reset:
 	docker compose down -v
 
 demo:
-	./scripts/demo.sh
+	bash scripts/demo.sh
 
 # Real gas/timing numbers from the running local chain, copied into ./results
 eval:
