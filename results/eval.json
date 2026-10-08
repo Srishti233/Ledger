@@ -1,0 +1,22 @@
+{
+  "environment": {
+    "ledger_version": "1.0.0",
+    "python": "3.12.15",
+    "platform": "Linux-6.17.0-1022-azure-x86_64-with-glibc2.41",
+    "measured_at": "2026-10-08T04:22:45.932778+00:00"
+  },
+  "sizes": [1, 10, 100, 1000],
+  "merkle": [
+    {"records": 1, "tree_build_ms": 0.001, "proof_generate_ms": 0.0007, "proof_verify_ms": 0.0012, "proof_length": 0},
+    {"records": 10, "tree_build_ms": 0.022, "proof_generate_ms": 0.0051, "proof_verify_ms": 0.0067, "proof_length": 4},
+    {"records": 100, "tree_build_ms": 0.181, "proof_generate_ms": 0.0083, "proof_verify_ms": 0.0107, "proof_length": 7},
+    {"records": 1000, "tree_build_ms": 1.297, "proof_generate_ms": 0.0063, "proof_verify_ms": 0.0081, "proof_length": 10}
+  ],
+  "chain": [
+    {"records": 1, "batches_sent": 1, "gas_used": 123078, "anchor_seconds": 0.1286, "inclusion_proof_verify_ms": 0.0006, "record_verify_with_chain_ms": 8.099, "batch_verify_with_chain_ms": 7.992, "verdict": "verified"},
+    {"records": 10, "batches_sent": 1, "gas_used": 123078, "anchor_seconds": 0.1263, "inclusion_proof_verify_ms": 0.0036, "record_verify_with_chain_ms": 7.84, "batch_verify_with_chain_ms": 8.099, "verdict": "verified"},
+    {"records": 100, "batches_sent": 1, "gas_used": 123078, "anchor_seconds": 0.131, "inclusion_proof_verify_ms": 0.0062, "record_verify_with_chain_ms": 8.327, "batch_verify_with_chain_ms": 10.916, "verdict": "verified"},
+    {"records": 1000, "batches_sent": 1, "gas_used": 123090, "anchor_seconds": 0.1697, "inclusion_proof_verify_ms": 0.0149, "record_verify_with_chain_ms": 10.939, "batch_verify_with_chain_ms": 50.763, "verdict": "verified"}
+  ],
+  "warmup_gas": 123030
+}
