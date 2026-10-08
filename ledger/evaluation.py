@@ -127,8 +127,10 @@ def render_markdown(report: dict) -> str:
         gas = [r["gas_used"] for r in c]
         lines += ["", f"Gas range across batch sizes: {min(gas)} to {max(gas)} "
                   f"(spread {max(gas) - min(gas)}).",
-                  f"A throwaway warm-up anchor ran first (gas {report.get('warmup_gas')}); it also "
-                  "initialises the contract's batch counter, which is why it is excluded from the table.", "",
+                  f"A throwaway warm-up anchor ran first (gas {report.get('warmup_gas')}) and is excluded "
+                  "from the table. On a brand-new contract the very first anchor also initialises the "
+                  "batch counter and can cost more than later ones; on a contract that already holds "
+                  "batches, as here if other anchors ran first, the warm-up is just another steady-state call.", "",
                   "### Illustrative cost per batch (assumptions, not a live price feed)", "",
                   "| scenario | cost per batch (ETH) |", "|---|---:|"]
         for x in illustrative_costs(max(gas)):
