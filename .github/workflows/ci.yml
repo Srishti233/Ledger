@@ -1,0 +1,85 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install ruff
+      # Real errors only (pyproject: select = ["E9", "F"]); style can never fail the build.
+      - run: ruff check .
+
+  contract-test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: contracts
+    steps:
+      - uses: actions/checkout@v4
+      - uses: foundry-rs/foundry-toolchain@v1
+      - name: Install forge-std
+        run: forge install --no-git foundry-rs/forge-std
+      - run: forge build
+      - run: forge test -vv
+      - name: Contract coverage (reported separately from Python coverage)
+        run: forge coverage --report summary
+      - name: Deploy script simulation (no broadcast)
+        run: forge script script/Deploy.s.sol
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: foundry-rs/foundry-toolchain@v1
+      - run: pip install -e ".[dev,postgres]"
+      - name: Build the contract artifact
+        run: cd contracts && forge build
+      - name: Start a real local Anvil chain
+        run: |
+          anvil --host 127.0.0.1 --port 8545 --chain-id 31337 \
+            --mnemonic 'test test test test test test test test test test test junk' > anvil.log 2>&1 &
+          for i in $(seq 1 30); do
+            cast block-number --rpc-url http://127.0.0.1:8545 >/dev/null 2>&1 && exit 0
+            sleep 1
+          done
+          cat anvil.log; exit 1
+      - name: Unit + API + integration tests (real chain, not mocked), 80% coverage gate
+        run: pytest --cov=ledger --cov-report=term-missing --cov-fail-under=80
+      - name: Fail if the integration tests were skipped instead of run
+        shell: bash   # explicit bash enables pipefail, so a pytest failure is not masked by tee
+        run: pytest -m integration -rs -q -p no:cacheprovider --no-cov | tee integ.txt; ! grep -qi "skipped" integ.txt
+
+  demo:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build and start the full stack (Anvil + Ledger)
+        run: docker compose up --build -d
+      - name: Tamper-detection demo against the real Anvil chain
+        run: NO_UP=1 ./scripts/demo.sh
+      - name: Measure gas and timings (real local chain)
+        run: make eval
+      - uses: actions/upload-artifact@v4
+        with:
+          name: eval-results
+          path: results/
+      - name: Logs on failure
+        if: failure()
+        run: docker compose logs --no-color
+      - name: Tear down
+        if: always()
+        run: docker compose down -v
